@@ -33,13 +33,13 @@ var ErrInvalidEncoding = errors.New("id3v2: invalid text encoding")
 func DecodeString(enc Encoding, data []byte) (string, error) {
 	switch enc {
 	case EncISO8859:
-		return decodeLatin1(trimOneTerminator(data, 1)), nil
+		return decodeLatin1(trimNUL(data)), nil
 	case EncUTF8:
-		return string(trimOneTerminator(data, 1)), nil
+		return string(trimNUL(data)), nil
 	case EncUTF16:
-		return decodeUTF16(trimOneTerminator(data, 2), true)
+		return decodeUTF16(trimUTF16Terminator(data), true)
 	case EncUTF16BE:
-		return decodeUTF16(trimOneTerminator(data, 2), false)
+		return decodeUTF16(trimUTF16Terminator(data), false)
 	default:
 		return "", ErrInvalidEncoding
 	}
@@ -186,13 +186,23 @@ func PickEncoding(version byte, values ...string) Encoding {
 	return EncUTF16
 }
 
-// trimOneTerminator drops a single trailing terminator of width n.
-func trimOneTerminator(data []byte, n int) []byte {
-	if n == 1 && len(data) > 0 && data[len(data)-1] == 0 {
+// trimNUL drops a single trailing NUL terminator.
+func trimNUL(data []byte) []byte {
+	if len(data) > 0 && data[len(data)-1] == 0 {
 		return data[:len(data)-1]
 	}
-	if n == 2 && len(data) >= 2 && data[len(data)-2] == 0 && data[len(data)-1] == 0 {
-		return data[:len(data)-2]
+	return data
+}
+
+// trimUTF16Terminator truncates data to whole code units, then drops a
+// single aligned $00 $00 terminator. Truncating first matters: some
+// taggers end a string with a single NUL byte, and the unaligned
+// $00 $00 pair that leaves at the end is the last character's zero
+// byte plus that NUL, not a terminator.
+func trimUTF16Terminator(data []byte) []byte {
+	data = data[:len(data)&^1]
+	if n := len(data); n >= 2 && data[n-2] == 0 && data[n-1] == 0 {
+		return data[:n-2]
 	}
 	return data
 }
@@ -239,11 +249,6 @@ func decodeLatin1(b []byte) string {
 }
 
 func decodeUTF16(b []byte, detectBOM bool) (string, error) {
-	if len(b)%2 != 0 {
-		// Tolerate an odd trailing byte by dropping it, which is
-		// what most real-world decoders do.
-		b = b[:len(b)-1]
-	}
 	littleEndian := false
 	if detectBOM && len(b) >= 2 {
 		switch {
