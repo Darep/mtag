@@ -22,6 +22,12 @@ func TestDecodeUTF16SingleNULTerminator(t *testing.T) {
 		{"UTF-16BE surrogate pair, single NUL", EncUTF16BE, []byte{0xD8, 0x3D, 0xDE, 0x00, 0}, "😀"},
 		{"UTF-16BE, double NUL", EncUTF16BE, []byte{0x4E, 0x00, 0, 0}, "一"},
 		{"UTF-16BE, double NUL plus pad NUL", EncUTF16BE, []byte{0x01, 0x00, 0, 0, 0}, "Ā"},
+		{"empty", EncUTF16, nil, ""},
+		{"single NUL only", EncUTF16, []byte{0}, ""},
+		{"BOM only", EncUTF16, []byte{0xFF, 0xFE}, ""},
+		{"BOM, single NUL", EncUTF16, []byte{0xFF, 0xFE, 0}, ""},
+		{"BOM, double NUL", EncUTF16, []byte{0xFF, 0xFE, 0, 0}, ""},
+		{"odd non-NUL trailing byte", EncUTF16, []byte{0xFF, 0xFE, 'A', 0, 'B'}, "A"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := DecodeString(tt.enc, tt.data)
@@ -35,8 +41,12 @@ func TestDecodeUTF16SingleNULTerminator(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Equal(values, []string{tt.want}) {
-				t.Errorf("SplitStrings = %q, want [%q]", values, tt.want)
+			var wantValues []string // SplitStrings drops a trailing empty value
+			if tt.want != "" {
+				wantValues = []string{tt.want}
+			}
+			if !slices.Equal(values, wantValues) {
+				t.Errorf("SplitStrings = %q, want %q", values, wantValues)
 			}
 		})
 	}

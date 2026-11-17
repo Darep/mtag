@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- `id3v2.DecodeString`: keep the last character of UTF-16 text that a
+  tagger ended with a single NUL byte instead of the required two.
+  The final character's zero byte plus that lone NUL was taken for a
+  terminator, so `Stam1na` read as `Stam1n`. The data is now cut to
+  whole code units before an aligned `$00 $00` terminator is dropped.
+  This covers the last string in a frame only. A single NUL used as a
+  separator mid-frame (TXXX/COMM descriptions, multi-value frames) is
+  still not recognised.
+
+### Tests
+
+- New `FuzzID3v2DecodeString` target checks that every encoding
+  round-trips, and that UTF-16 text ending a frame decodes the same
+  with a single NUL terminator as with two.
+
 ## v1.0.2
 
 ### Fixes

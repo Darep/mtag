@@ -687,6 +687,37 @@ func TestID3v2_GRIDRoundTrip(t *testing.T) {
 	}
 }
 
+// TestID3v2_UTF16SingleNULTerminator parses a TPE1 frame body copied
+// from a real ID3v2.4 tag whose tagger ends UTF-16 text with one NUL
+// byte instead of two. The last character must survive.
+func TestID3v2_UTF16SingleNULTerminator(t *testing.T) {
+	body := []byte{
+		0x01, 0xFF, 0xFE, // UTF-16 with little-endian BOM
+		'S', 0, 't', 0, 'a', 0, 'm', 0, '1', 0, 'n', 0, 'a', 0,
+		0, // single NUL terminator
+	}
+	frame := make([]byte, 10, 10+len(body))
+	copy(frame, "TPE1")
+	if err := id3v2.EncodeSynchsafe(frame[4:8], uint32(len(body))); err != nil {
+		t.Fatal(err)
+	}
+	frame = append(frame, body...)
+	raw := make([]byte, 10, 10+len(frame))
+	copy(raw, "ID3\x04\x00\x00")
+	if err := id3v2.EncodeSynchsafe(raw[6:10], uint32(len(frame))); err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, frame...)
+
+	tag, err := id3v2.Read(id3v2BytesReader(raw), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tag.Text(id3v2.FrameArtist); got != "Stam1na" {
+		t.Errorf("TPE1 = %q, want %q", got, "Stam1na")
+	}
+}
+
 // FuzzID3v2Read throws random bytes at the v2 parser. The parser
 // is allowed to return any error but must never panic.
 func FuzzID3v2Read(f *testing.F) {
