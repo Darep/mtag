@@ -111,7 +111,7 @@ f, err := mtag.OpenWritableSource(src, size)
 See [`API.md`](API.md) for the full reference. The top-level `File` API is
 grouped around a small set of concepts.
 
-- Common text fields: `Title`, `Artist`, `Album`, `AlbumArtist`,
+- Common text fields: `Title`, `Artist`, `Artists`, `Album`, `AlbumArtist`,
   `Composer`, `Comment`, `Lyrics`, `Copyright`, `Publisher`,
   `EncodedBy`.
 - Numbering and dates: `Track`, `TrackTotal`, `Disc`, `DiscTotal`,

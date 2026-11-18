@@ -55,20 +55,28 @@ func mp4ItemNameFor(frameID string) string {
 // so callers that ask for "\xa9day" of an integer value still get a
 // reasonable result.
 func (f *File) mp4ItemString(name string) string {
-	if f.mp4 == nil {
-		return ""
+	if values := f.mp4ItemStrings(name); len(values) > 0 {
+		return values[0]
 	}
+	return ""
+}
+
+func (f *File) mp4ItemStrings(name string) []string {
+	if f.mp4 == nil {
+		return nil
+	}
+	var values []string
 	for _, it := range mp4.ItemsByName(f.mp4.items, name) {
 		switch it.Type {
 		case mp4.DataUTF8, mp4.DataUTF16:
-			return string(it.Data)
+			values = append(values, string(it.Data))
 		case mp4.DataInteger:
 			if v, ok := mp4DecodeInteger(it.Data); ok {
-				return strconv.FormatInt(v, 10)
+				values = append(values, strconv.FormatInt(v, 10))
 			}
 		}
 	}
-	return ""
+	return values
 }
 
 func (f *File) mp4MDTAString(name string) string {

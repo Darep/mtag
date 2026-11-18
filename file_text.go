@@ -23,7 +23,55 @@ func (f *File) SetTitle(s string) {
 
 // Artist returns the primary performer.
 func (f *File) Artist() string {
-	return f.getField(id3v2.FrameArtist, func(v *id3v1.Tag) string { return v.Artist })
+	if artists := f.Artists(); len(artists) > 0 {
+		return artists[0]
+	}
+	return ""
+}
+
+// Artists returns all performers from the highest-priority artist tag.
+// Empty and whitespace-only values left by tag padding are omitted. The returned
+// slice is independent of the file's metadata; changing it does not edit the tag.
+func (f *File) Artists() []string {
+	if f.v2 != nil {
+		var values []string
+		for _, frame := range f.v2.FindAll(id3v2.FrameArtist) {
+			if text, ok := frame.(*id3v2.TextFrame); ok {
+				values = append(values, text.Values...)
+			}
+		}
+		if values = nonEmptyTextValues(values); len(values) > 0 {
+			return values
+		}
+	}
+	if f.flac != nil && f.flac.comment != nil {
+		if values := nonEmptyTextValues(f.flac.comment.GetAll("ARTIST")); len(values) > 0 {
+			return values
+		}
+	}
+	if f.mp4 != nil {
+		if values := nonEmptyTextValues(f.mp4ItemStrings("\xa9ART")); len(values) > 0 {
+			return values
+		}
+	}
+	if f.ape != nil {
+		if field := f.ape.Find(ape.FieldArtist); field != nil {
+			if values := nonEmptyTextValues(field.TextValues()); len(values) > 0 {
+				return values
+			}
+		}
+	}
+	return nonEmptyTextValues([]string{f.getField(id3v2.FrameArtist, func(v *id3v1.Tag) string { return v.Artist })})
+}
+
+func nonEmptyTextValues(values []string) []string {
+	var result []string
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 // SetArtist updates the primary performer.

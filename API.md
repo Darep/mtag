@@ -80,12 +80,17 @@ Setters write to every store currently present on the file.
 |---|---|
 | `Title() string` | `SetTitle(string)` |
 | `Artist() string` | `SetArtist(string)` |
+| `Artists() []string` | — |
 | `Album() string` | `SetAlbum(string)` |
 | `AlbumArtist() string` | `SetAlbumArtist(string)` |
 | `Composer() string` | `SetComposer(string)` |
 | `Copyright() string` | `SetCopyright(string)` |
 | `Publisher() string` | `SetPublisher(string)` |
 | `EncodedBy() string` | `SetEncodedBy(string)` |
+
+`Artists()` preserves multiple ID3v2, Vorbis, MP4, and APE performer values,
+omits empty padding values, and returns a separate slice. `Artist()` returns
+the primary performer. Missing ID3 fields in WAV files fall back to RIFF INFO.
 
 ## Numbering and dates
 
@@ -290,6 +295,9 @@ Style selectors (`WithAudioPropertiesStyle`):
 - `AudioPropertiesAccurate` - full scan.
 - `AudioPropertiesAverage` - bounded scan with summary-block fallback.
 - `AudioPropertiesFast` - header and summary block only.
+
+Accurate MPEG reads exclude ID3v1, APE, and appended ID3v2.4 tags, count complete
+audio frames, and resume after damaged data. Adjacent header reads are buffered.
 
 ## Capabilities
 

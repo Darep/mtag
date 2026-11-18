@@ -249,7 +249,7 @@ func (f *File) getField(frameID string, v1get func(*id3v1.Tag) string) string {
 			return s
 		}
 	}
-	if f.v2 == nil && f.flac == nil && f.mp4 == nil && f.ape == nil && f.riffInfo != nil {
+	if f.riffInfo != nil {
 		if s := firstMappedValue(f.riffInfo, spec.riff...); s != "" {
 			return s
 		}
