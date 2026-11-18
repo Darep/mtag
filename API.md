@@ -293,11 +293,13 @@ type AudioProperties struct {
 Style selectors (`WithAudioPropertiesStyle`):
 
 - `AudioPropertiesAccurate` - full scan.
-- `AudioPropertiesAverage` - bounded scan with summary-block fallback.
+- `AudioPropertiesAverage` - summaries or bounded CBR samples; scan MPEG streams whose sampled bitrate varies.
 - `AudioPropertiesFast` - header and summary block only.
 
 Accurate MPEG reads exclude ID3v1, APE, and appended ID3v2.4 tags, count complete
 audio frames, and resume after damaged data. Adjacent header reads are buffered.
+Average mode samples the beginning, middle, and end for a constant-bitrate
+estimate. Sampling can miss changes elsewhere; use Accurate for exact counts.
 
 ## Capabilities
 

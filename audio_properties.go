@@ -21,7 +21,8 @@ const (
 	// produce the most reliable duration and bitrate estimate mtag can.
 	AudioPropertiesAccurate AudioPropertiesStyle = iota
 	// AudioPropertiesAverage prefers bounded scans and summary blocks
-	// when the format provides them.
+	// when the format provides them. MPEG audio is sampled for a constant
+	// bitrate; variable-bitrate streams without a summary are scanned.
 	AudioPropertiesAverage
 	// AudioPropertiesFast limits itself to header reads and summary
 	// blocks that are available near the start of the stream.
@@ -1305,22 +1306,19 @@ func parseMPEGSummary(frame []byte) (mpegSummaryInfo, bool) {
 	return mpegSummaryInfo{}, false
 }
 
-func scanMPEGFrames(r io.ReaderAt, start, end int64, maxFrames int) (frames int, totalBytes int64, totalSamples uint64, complete bool) {
+func scanMPEGFrames(r io.ReaderAt, start, end int64) (totalBytes int64, totalSamples uint64, complete bool) {
 	var hdr [4]byte
 	off := start
 	var first mpegFrameInfo
 	for off+4 <= end {
-		if maxFrames > 0 && frames >= maxFrames {
-			return frames, totalBytes, totalSamples, false
-		}
 		if _, err := r.ReadAt(hdr[:], off); err != nil {
-			return frames, totalBytes, totalSamples, false
+			return totalBytes, totalSamples, false
 		}
 		info, ok := parseMPEGHeader(hdr[:])
 		if !ok || first.sampleRate != 0 && (info.codec != first.codec || info.sampleRate != first.sampleRate) {
 			off, info, ok = findNextMPEGFrame(r, off+1, end)
 			if !ok {
-				return frames, totalBytes, totalSamples, true
+				return totalBytes, totalSamples, true
 			}
 			if first.sampleRate != 0 && (info.codec != first.codec || info.sampleRate != first.sampleRate) {
 				off++
@@ -1328,17 +1326,16 @@ func scanMPEGFrames(r io.ReaderAt, start, end int64, maxFrames int) (frames int,
 			}
 		}
 		if off+int64(info.frameLen) > end {
-			return frames, totalBytes, totalSamples, true
+			return totalBytes, totalSamples, true
 		}
 		if first.sampleRate == 0 {
 			first = info
 		}
 		totalBytes += int64(info.frameLen)
 		totalSamples += uint64(info.samplesPerFrame)
-		frames++
 		off += int64(info.frameLen)
 	}
-	return frames, totalBytes, totalSamples, true
+	return totalBytes, totalSamples, true
 }
 
 func estimateMPEGFromAverage(streamBytes int64, sampleRate int, frames int, totalBytes int64, totalSamples uint64) (time.Duration, int) {
@@ -1359,6 +1356,37 @@ func estimateMPEGFromAverage(streamBytes int64, sampleRate int, frames int, tota
 	return duration, bitrate
 }
 
+// estimateConstantMPEG samples the beginning, middle, and end. This is an
+// estimate for Average mode; Accurate mode always counts every audio frame.
+func estimateConstantMPEG(r io.ReaderAt, start, end int64, first mpegFrameInfo) (time.Duration, int, bool) {
+	const sampleFrames = 16
+	var frames int
+	var size int64
+	var samples uint64
+	for _, position := range []int64{start, start + (end-start)/2, max(start, end-sampleFrames*int64(first.frameLen))} {
+		offset, frame, ok := findNextMPEGFrame(r, position, end)
+		for i := 0; i < sampleFrames; i++ {
+			if !ok || frame.bitrate != first.bitrate || frame.codec != first.codec || frame.sampleRate != first.sampleRate || offset+int64(frame.frameLen) > end {
+				return 0, 0, false
+			}
+			frames++
+			size += int64(frame.frameLen)
+			samples += uint64(frame.samplesPerFrame)
+			offset += int64(frame.frameLen)
+			if offset+4 > end {
+				break
+			}
+			var header [4]byte
+			if _, err := r.ReadAt(header[:], offset); err != nil {
+				return 0, 0, false
+			}
+			frame, ok = parseMPEGHeader(header[:])
+		}
+	}
+	duration, bitrate := estimateMPEGFromAverage(end-start, first.sampleRate, frames, size, samples)
+	return duration, bitrate, duration > 0
+}
+
 func (f *File) readMPEGAudio(style AudioPropertiesStyle) AudioProperties {
 	start := f.v2at + f.v2size
 	if start < 0 || start >= f.size {
@@ -1375,7 +1403,6 @@ func (f *File) readMPEGAudio(style AudioPropertiesStyle) AudioProperties {
 		SampleRate: first.sampleRate,
 		Channels:   first.channels,
 	}
-	streamBytes := end - off
 	if first.codec == "mp3" && first.frameLen > 0 && first.frameLen <= 16384 {
 		if frame, err := readRange(reader, off, int64(first.frameLen)); err == nil {
 			if sum, ok := parseMPEGSummary(frame); ok && first.sampleRate > 0 && first.samplesPerFrame > 0 {
@@ -1391,23 +1418,18 @@ func (f *File) readMPEGAudio(style AudioPropertiesStyle) AudioProperties {
 		out.Bitrate = first.bitrate
 		return out
 	}
-	maxFrames := 0
 	if style == AudioPropertiesAverage {
-		maxFrames = 64
+		if duration, bitrate, ok := estimateConstantMPEG(reader, off, end, first); ok {
+			out.Duration, out.Bitrate = duration, bitrate
+			return out
+		}
 	}
-	frames, totalBytes, totalSamples, complete := scanMPEGFrames(reader, off, end, maxFrames)
+	totalBytes, totalSamples, complete := scanMPEGFrames(reader, off, end)
 	if first.sampleRate > 0 && totalSamples > 0 {
 		if complete {
 			out.Duration = durationFromSamples(totalSamples, first.sampleRate)
 			if out.Duration > 0 && totalBytes > 0 {
 				out.Bitrate = bitrateBps(totalBytes, out.Duration)
-			}
-			return out
-		}
-		if style == AudioPropertiesAverage {
-			out.Duration, out.Bitrate = estimateMPEGFromAverage(streamBytes, first.sampleRate, frames, totalBytes, totalSamples)
-			if out.Bitrate == 0 {
-				out.Bitrate = first.bitrate
 			}
 			return out
 		}

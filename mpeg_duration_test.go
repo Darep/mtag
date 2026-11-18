@@ -50,14 +50,20 @@ func TestMPEGDurationCountsAudioOnly(t *testing.T) {
 		"partial final frame":        append(append([]byte{}, variable...), durationTestFrames(9, 1)[:20]...),
 	} {
 		t.Run(name, func(t *testing.T) {
-			f, err := OpenBytes(data, WithSkipPictures())
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer f.Close()
-			want := time.Duration(1000*1152) * time.Second / 44100
-			if got := f.AudioProperties().Duration; got != want {
-				t.Fatalf("duration=%v, want %v", got, want)
+			for _, style := range []AudioPropertiesStyle{AudioPropertiesAccurate, AudioPropertiesAverage} {
+				t.Run(style.String(), func(t *testing.T) {
+					f, err := OpenBytes(data, WithSkipPictures(), WithAudioPropertiesStyle(style))
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer f.Close()
+					want := time.Duration(1000*1152) * time.Second / 44100
+					got := f.AudioProperties().Duration
+					delta := got - want
+					if style == AudioPropertiesAccurate && delta != 0 || delta < -time.Millisecond || delta > time.Millisecond {
+						t.Fatalf("duration=%v, want %v", got, want)
+					}
+				})
 			}
 		})
 	}
@@ -66,11 +72,14 @@ func TestMPEGDurationCountsAudioOnly(t *testing.T) {
 type countedMPEGSource struct {
 	*bytes.Reader
 	reads int
+	bytes int
 }
 
 func (r *countedMPEGSource) ReadAt(p []byte, offset int64) (int, error) {
 	r.reads++
-	return r.Reader.ReadAt(p, offset)
+	n, err := r.Reader.ReadAt(p, offset)
+	r.bytes += n
+	return n, err
 }
 
 func TestMPEGDurationBatchesFrameReads(t *testing.T) {
@@ -87,5 +96,22 @@ func TestMPEGDurationBatchesFrameReads(t *testing.T) {
 	}
 	if source.reads > 40 {
 		t.Fatalf("1000 frames needed %d reads; expected buffered reads", source.reads)
+	}
+}
+
+func TestMPEGAverageSamplesConstantBitrate(t *testing.T) {
+	data := durationTestFrames(9, 10000)
+	source := &countedMPEGSource{Reader: bytes.NewReader(data)}
+	f, err := OpenSource(source, int64(len(data)), WithAudioPropertiesStyle(AudioPropertiesAverage))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	source.bytes = 0
+	if got := int(f.AudioProperties().Duration.Seconds()); got != 261 {
+		t.Fatalf("duration=%d, want 261 seconds", got)
+	}
+	if source.bytes > 4*(16<<10) {
+		t.Fatalf("constant-bitrate estimate read %d bytes, want bounded samples", source.bytes)
 	}
 }
